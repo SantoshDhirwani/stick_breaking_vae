@@ -3,13 +3,13 @@ import os
 import torch
 from torch import optim
 from torch.utils.tensorboard import SummaryWriter
-from util_vars import CUDA, learning_rate, print_interval, train_loader, test_loader, n_train_epochs, input_shape,\
+from utils.util_vars import CUDA, learning_rate, print_interval, train_loader, test_loader, n_train_epochs, input_shape,\
     latent_ndims
-from VAEs_pytorch import GaussianVAE, StickBreakingVAE
+from model_classes.VAEs_pytorch import GaussianVAE
 
 # init model and optimizer
-# model = GaussianVAE().cuda() if CUDA else GaussianVAE()
-model = StickBreakingVAE().cuda() if CUDA else StickBreakingVAE()
+model = GaussianVAE().cuda() if CUDA else GaussianVAE()
+# model = StickBreakingVAE().cuda() if CUDA else StickBreakingVAE()
 optimizer = optim.Adam(model.parameters(), betas=(0.95, 0.999), lr=learning_rate)
 model_name = model._get_name()
 tb_writer = SummaryWriter(f'logs/{model_name}')
@@ -23,7 +23,7 @@ def train():
         data = data.cuda() if CUDA else data
         optimizer.zero_grad()
         recon_batch, param1, param2 = model(data)
-        loss = model.ELBO_loss(recon_batch, data, param1, param2)
+        loss = model.ELBO_loss(recon_batch, data, param1, param2, model.kl_divergence)
         loss.backward()
         train_loss += loss.item()
         optimizer.step()
@@ -46,7 +46,7 @@ def test():
     for batch_idx, data in enumerate(test_loader):
         data = data.cuda() if CUDA else data
         recon_batch, param1, param2 = model(data)
-        test_loss += model.ELBO_loss(recon_batch, data, param1, param2).item()
+        test_loss += model.ELBO_loss(recon_batch, data, param1, param2, model.kl_divergence).item()
 
     test_loss /= len(test_loader.dataset)
     print('====> Test set loss: {:.4f}'.format(test_loss))
@@ -77,16 +77,16 @@ for epoch in range(1, n_train_epochs + 1):
         samples = test_loader.dataset[random_idxs]
 
         # save originals
-        tb_writer.add_images(f'{n_random_samples}original_test_samples',
+        tb_writer.add_images(f'{n_random_samples}_original_test_samples',
                              img_tensor=samples.view(n_random_samples, 1, *input_shape),
                              global_step=epoch,
                              dataformats='NCHW')
 
         samples = samples.cuda() if CUDA else samples
-        samples = torch.stack(model(samples))
+        samples = torch.stack([model(x)[0] for x in samples]) # TODO: fix problem with stacking
 
         # save reconstructed
-        tb_writer.add_images(f'{n_random_samples}reconstructed_test_samples',
+        tb_writer.add_images(f'{n_random_samples}_reconstructed_test_samples',
                              img_tensor=samples.view(n_random_samples, 1, *input_shape),
                              global_step=epoch,
                              dataformats='NCHW')

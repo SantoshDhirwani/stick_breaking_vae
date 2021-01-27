@@ -57,7 +57,7 @@ def main(models_dict):
 
     test_error = xr.DataArray(np.full((len(model_names), len(k)), np.nan),
                               coords=dict(models=model_names, k=k),
-                              dims=['models', 'k'])
+                              dims=['model_classes', 'k'])
 
     for model in model_names:
         if model in models_dict.keys():

@@ -1,5 +1,5 @@
 from torch import nn
-from util_vars import input_ndims, hidden_ndims, activation, latent_ndims
+from utils.util_vars import input_ndims, hidden_ndims, activation, latent_ndims
 
 
 class GaussianEncoder(object):
