@@ -25,7 +25,7 @@ prior_shape_beta = concentration_alpha0 = torch.Tensor([5.])
 activation = nn.ReLU()
 train_valid_test_splits = (5000, 5000, 10000)
 dataloader_kwargs = {}
-download_needed = not os.path.exists('MNIST')
+download_needed = not os.path.exists('../MNIST')
 
 # use GPU, if available
 CUDA = torch.cuda.is_available()
