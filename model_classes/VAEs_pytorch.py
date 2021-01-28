@@ -2,17 +2,19 @@ import torch
 import botorch
 from model_classes.encoders_decoders_pytorch import GaussianEncoder, StickBreakingEncoder, Decoder
 from utils.util_vars import init_weight_mean_var, input_ndims, latent_ndims, prior_mu, prior_sigma, prior_shape_alpha,\
-    prior_shape_beta
+    prior_shape_beta, uniform_low, uniform_high
+from numpy.testing import assert_almost_equal
 
 
 class VAE(object):
     def __init__(self, target_distribution, latent_distribution, prior_param1, prior_param2):
         # GaussianVAE: target == latent == torch.distributions.MultivariateNormal
-        # StickBreakingVAE: target == torch.distributions.beta.Beta, latent = botorch.distributions.Kumaraswamy
+        # StickBreakingVAE: target == torch.distributions.beta.Beta, latent == botorch.distributions.Kumaraswamy
         self.target_distribution = target_distribution
         self.latent_distribution = latent_distribution
         self.prior_param1 = prior_param1
         self.prior_param2 = prior_param2
+        self.uniform_distribution = torch.distributions.uniform.Uniform(low=uniform_low, high=uniform_high)
 
         self.init_weights(self.encoder_layers)
         self.init_weights(self.decoder_layers)
@@ -55,16 +57,23 @@ class VAE(object):
         return out
 
     def get_kumaraswamy_samples(self, param1, param2):
-        v = (1 - torch.rand(latent_ndims).pow(1 / param2)).pow(1 / param1)  # Kumaraswamy samples
-        return v
+        v = (1 - self.uniform_distribution.sample([latent_ndims]).squeeze().pow(1 / param2)).pow(1 / param1)
+        return v  # sampled fractions
 
     def get_stick_segments(self, v):
-        pi = v.data.new_zeros(v.size())
-        for k in range(latent_ndims):
+        n_samples = v.size()[0]
+        n_dims = v.size()[1]
+        pi = torch.zeros((n_samples, n_dims))
+
+        for k in range(n_dims):
             if k == 0:
-                pi[k] = v[k]
+                pi[:, k] = v[:, k]
             else:
-                pi[k] = v[k] * torch.stack([(1 - v[j]) for j in range(latent_ndims) if j < k]).prod()
+                pi[:, k] = v[:, k] * torch.stack([(1 - v[:, j]) for j in range(n_dims) if j < k]).prod(axis=0)
+
+        # # ensure stick segments sum to 1
+        # assert_almost_equal(torch.ones(n_samples), pi.sum(axis=1).detach().numpy(),
+        #                     decimal=1, err_msg='stick segments do not sum to 1')
         return pi
 
 

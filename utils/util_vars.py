@@ -21,6 +21,8 @@ prior_mu = torch.Tensor([0.])
 prior_sigma = torch.Tensor([1.])
 prior_shape_alpha = torch.Tensor([1.])
 prior_shape_beta = concentration_alpha0 = torch.Tensor([5.])
+uniform_low = torch.Tensor([.01])
+uniform_high = torch.Tensor([.99])
 activation = nn.ReLU()
 train_valid_test_splits = (45000, 5000, 10000)
 dataloader_kwargs = {}
