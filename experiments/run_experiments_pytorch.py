@@ -5,11 +5,11 @@ from torch import optim
 from torch.utils.tensorboard import SummaryWriter
 from utils.util_vars import CUDA, learning_rate, print_interval, train_loader, test_loader, n_train_epochs, input_shape,\
     latent_ndims
-from model_classes.VAEs_pytorch import GaussianVAE
+from model_classes.VAEs_pytorch import GaussianVAE, StickBreakingVAE
 
 # init model and optimizer
-model = GaussianVAE().cuda() if CUDA else GaussianVAE()
-# model = StickBreakingVAE().cuda() if CUDA else StickBreakingVAE()
+# model = GaussianVAE().cuda() if CUDA else GaussianVAE()
+model = StickBreakingVAE().cuda() if CUDA else StickBreakingVAE()
 optimizer = optim.Adam(model.parameters(), betas=(0.95, 0.999), lr=learning_rate)
 model_name = model._get_name()
 tb_writer = SummaryWriter(f'logs/{model_name}')
@@ -83,7 +83,7 @@ for epoch in range(1, n_train_epochs + 1):
                              dataformats='NCHW')
 
         samples = samples.cuda() if CUDA else samples
-        samples = torch.stack([model(x)[0] for x in samples]) # TODO: fix problem with stacking
+        samples = torch.stack([model(x)[0] for x in samples])
 
         # save reconstructed
         tb_writer.add_images(f'{n_random_samples}_reconstructed_test_samples',
