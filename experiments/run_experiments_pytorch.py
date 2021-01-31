@@ -8,6 +8,7 @@ from utils.util_vars import CUDA, learning_rate, print_interval, train_loader, t
 from model_classes.VAEs_pytorch import GaussianVAE, StickBreakingVAE
 
 # init model and optimizer
+time_now = datetime.datetime.now().__format__('%b_%d_%Y_%H_%M')
 # model = GaussianVAE().cuda() if CUDA else GaussianVAE()
 model = StickBreakingVAE().cuda() if CUDA else StickBreakingVAE()
 optimizer = optim.Adam(model.parameters(), betas=(0.95, 0.999), lr=learning_rate)
@@ -66,7 +67,7 @@ for epoch in range(1, n_train_epochs + 1):
         sample = sample.cuda() if CUDA else sample
         sample = model.decode(sample).cpu()
 
-        tb_writer.add_images(f'{n_random_samples}samples_from_latent_space',
+        tb_writer.add_images(f'{n_random_samples}samples_from_latent_space_{time_now}',
                              img_tensor=sample.view(n_random_samples, 1, *input_shape),
                              global_step=epoch,
                              dataformats='NCHW')
@@ -77,7 +78,7 @@ for epoch in range(1, n_train_epochs + 1):
         samples = test_loader.dataset[random_idxs]
 
         # save originals
-        tb_writer.add_images(f'{n_random_samples}_original_test_samples',
+        tb_writer.add_images(f'{n_random_samples}_original_test_samples_{time_now}',
                              img_tensor=samples.view(n_random_samples, 1, *input_shape),
                              global_step=epoch,
                              dataformats='NCHW')
@@ -86,7 +87,7 @@ for epoch in range(1, n_train_epochs + 1):
         samples = torch.stack([model(x)[0] for x in samples])
 
         # save reconstructed
-        tb_writer.add_images(f'{n_random_samples}_reconstructed_test_samples',
+        tb_writer.add_images(f'{n_random_samples}_reconstructed_test_samples_{time_now}',
                              img_tensor=samples.view(n_random_samples, 1, *input_shape),
                              global_step=epoch,
                              dataformats='NCHW')
@@ -95,5 +96,4 @@ tb_writer.close()
 
 # save trained weights
 model_path = 'trained_models'
-time_now = datetime.datetime.now().__format__('%b_%d_%Y_%H_%M')
 torch.save(model.state_dict(), os.path.join(model_path, f'{model_name}_{time_now}'))
