@@ -38,8 +38,9 @@ class Decoder(object):
         self.hidden_to_reconstruction = nn.Linear(hidden_ndims, input_ndims)
         self.activation = activation
         self.decoder_layers = nn.ModuleList([self.latent_to_hidden, self.hidden_to_reconstruction])
+        self.sigmoid = nn.Sigmoid()  # note: used as decoder output activation in the Nalisnick github
 
     def decode(self, z):
         hidden = self.activation(self.latent_to_hidden(z))
-        reconstruction = self.activation(self.hidden_to_reconstruction(hidden))
+        reconstruction = self.sigmoid(self.hidden_to_reconstruction(hidden))
         return reconstruction
