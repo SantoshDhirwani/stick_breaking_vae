@@ -36,7 +36,7 @@ class VAE(object):
 
     def monte_carlo_kl_divergence(self, param1, param2):
         q = self.latent_distribution(param1, param2)  # for Gaussian, param1==mu, param2==torch.diag(sigma)
-        z = q.rsample()
+        z = q.rsample()  # reparameterized sample, should it just be .sample()?
         log_qzx = q.log_prob(z)
         log_pz = self.target_distribution(self.prior_param1, self.prior_param2).log_prob(z)
         kl = (log_qzx - log_pz)
@@ -57,8 +57,10 @@ class VAE(object):
         return out
 
     def get_kumaraswamy_samples(self, param1, param2):
-        v = (1 - self.uniform_distribution.sample([latent_ndims]).squeeze().pow(1 / param2)).pow(1 / param1)
-        return v  # sampled fractions
+        v0 = (1 - self.uniform_distribution.sample([latent_ndims]).squeeze().pow(1 / param2)).pow(1 / param1)
+        # set Kth fraction vi,K to one to ensure the stick segments sum to one
+        v1 = torch.cat([v0[:, :latent_ndims-1], torch.ones(v0.shape[0], 1)], dim=1)  # torch.cat slow on CPU
+        return v1  # sampled fractions
 
     def get_stick_segments(self, v):
         n_samples = v.size()[0]
@@ -71,9 +73,10 @@ class VAE(object):
             else:
                 pi[:, k] = v[:, k] * torch.stack([(1 - v[:, j]) for j in range(n_dims) if j < k]).prod(axis=0)
 
-        # # ensure stick segments sum to 1
-        # assert_almost_equal(torch.ones(n_samples), pi.sum(axis=1).detach().numpy(),
-        #                     decimal=1, err_msg='stick segments do not sum to 1')
+        # ensure stick segments sum to 1
+        assert_almost_equal(torch.ones(n_samples), pi.sum(axis=1).detach().numpy(),
+                            decimal=2, err_msg='stick segments do not sum to 1')
+        # print(pi.sum(axis=1))
         return pi
 
 
