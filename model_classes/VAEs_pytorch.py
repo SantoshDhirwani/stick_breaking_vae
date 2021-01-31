@@ -14,10 +14,12 @@ class VAE(object):
         self.latent_distribution = latent_distribution
         self.prior_param1 = prior_param1
         self.prior_param2 = prior_param2
-        self.uniform_distribution = torch.distributions.uniform.Uniform(low=uniform_low, high=uniform_high)
 
         self.init_weights(self.encoder_layers)
         self.init_weights(self.decoder_layers)
+
+        self.uniform_distribution = torch.distributions.uniform.Uniform(low=uniform_low, high=uniform_high)
+        self.uniform_samples = self.uniform_distribution.sample([latent_ndims]).squeeze()
 
     def init_weights(self, layers):
         for layer in layers:
@@ -32,6 +34,8 @@ class VAE(object):
         n_samples = len(recon_x)
         reconstruction_loss = (x.view(-1, input_ndims) - recon_x).pow(2).mul(.5).sum(axis=1)  # neg loglik Nalisnick
         regularization_loss = torch.stack([kl_divergence(param1[i], param2[i]) for i in range(n_samples)])
+        print('reconstruction_loss: ', reconstruction_loss.mean(),
+              '\tregularization_loss: ', regularization_loss.mean())
         return (reconstruction_loss + regularization_loss).mean()
 
     def monte_carlo_kl_divergence(self, param1, param2):
@@ -57,7 +61,10 @@ class VAE(object):
         return out
 
     def get_kumaraswamy_samples(self, param1, param2):
+        # TODO: should uniform samples be static or resampled?
         v0 = (1 - self.uniform_distribution.sample([latent_ndims]).squeeze().pow(1 / param2)).pow(1 / param1)
+        # v0 = (1 - self.uniform_samples.pow(1 / param2)).pow(1 / param1)
+
         # set Kth fraction vi,K to one to ensure the stick segments sum to one
         v1 = torch.cat([v0[:, :latent_ndims-1], torch.ones(v0.shape[0], 1)], dim=1)  # torch.cat slow on CPU
         return v1  # sampled fractions
@@ -76,7 +83,6 @@ class VAE(object):
         # ensure stick segments sum to 1
         assert_almost_equal(torch.ones(n_samples), pi.sum(axis=1).detach().numpy(),
                             decimal=2, err_msg='stick segments do not sum to 1')
-        # print(pi.sum(axis=1))
         return pi
 
 
@@ -110,6 +116,7 @@ class GaussianVAE(torch.nn.Module, GaussianEncoder, Decoder, VAE):
         return kl
 
 
+# TODO: fix reconstruction for SBVAE
 class StickBreakingVAE(torch.nn.Module, StickBreakingEncoder, Decoder, VAE):
     def __init__(self):
         super(StickBreakingVAE, self).__init__()
@@ -123,7 +130,7 @@ class StickBreakingVAE(torch.nn.Module, StickBreakingEncoder, Decoder, VAE):
     def forward(self, x):
         alpha, beta = self.encode(x.view(-1, input_ndims))
         pi = self.reparametrize(alpha, beta, parametrization='Kumaraswamy') if self.training \
-            else self.get_kumaraswamy_samples(alpha, beta)
+            else self.get_stick_segments((1 - torch.linspace(0, 1, latent_ndims).pow(1 / beta)).pow(1 / alpha))
         reconstructed_x = self.decode(pi)
         return reconstructed_x, alpha, beta
 
