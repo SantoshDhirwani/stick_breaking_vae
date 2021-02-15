@@ -4,19 +4,25 @@ import torch
 from torch import optim
 from torch.utils.tensorboard import SummaryWriter
 from utils.util_vars import CUDA, learning_rate, print_interval, train_loader, test_loader, n_train_epochs, input_shape,\
-    latent_ndims
+    latent_ndims, parametrizations, lookahead
 from model_classes.VAEs_pytorch import GaussianVAE, StickBreakingVAE
 
 # init model and optimizer
 time_now = datetime.datetime.now().__format__('%b_%d_%Y_%H_%M')
-# model = GaussianVAE().cuda() if CUDA else GaussianVAE()
-model = StickBreakingVAE().cuda() if CUDA else StickBreakingVAE()
+parametrization = parametrizations['Kumar']
+model = GaussianVAE().cuda() if CUDA else GaussianVAE()
+# model = StickBreakingVAE(parametrization).cuda() if CUDA else StickBreakingVAE(parametrization)
 optimizer = optim.Adam(model.parameters(), betas=(0.95, 0.999), lr=learning_rate)
-model_name = model._get_name()
+parametrization_str = parametrization if model._get_name() == "StickBreakingVAE" else ''
+model_name = '_'.join(filter(None, [model._get_name(), parametrization_str]))
 tb_writer = SummaryWriter(f'logs/{model_name}')
+best_test_epoch = None
+best_test_loss = None
+stop_training = None
 
 
-def train():
+def train(epoch):
+    print(f'\nTrain Epoch: {epoch}')
     model.train()
     train_loss = 0
 
@@ -24,7 +30,8 @@ def train():
         data = data.cuda() if CUDA else data
         optimizer.zero_grad()
         recon_batch, param1, param2 = model(data)
-        loss = model.ELBO_loss(recon_batch, data, param1, param2, model.kl_divergence)
+        mc_sample = torch.randint(high=len(data), size=(1,))  # draw random monte carlo sample
+        loss = model.ELBO_loss(recon_batch[mc_sample], data[mc_sample], param1, param2, model.kl_divergence)
         loss.backward()
         train_loss += loss.item()
         optimizer.step()
@@ -40,40 +47,47 @@ def train():
     tb_writer.add_scalar("Loss/train", loss.item() / len(data), epoch)
 
 
-def test():
+def test(epoch):
+    global best_test_epoch, best_test_loss, stop_training
     model.eval()
     test_loss = 0
 
     for batch_idx, data in enumerate(test_loader):
         data = data.cuda() if CUDA else data
         recon_batch, param1, param2 = model(data)
-        test_loss += model.ELBO_loss(recon_batch, data, param1, param2, model.kl_divergence).item()
+        mc_sample = torch.randint(high=len(data), size=(1,))  # draw random monte carlo sample
+        test_loss += model.ELBO_loss(recon_batch[mc_sample], data[mc_sample], param1, param2, model.kl_divergence).item()
 
     test_loss /= len(test_loader.dataset)
     print('====> Test set loss: {:.4f}'.format(test_loss))
 
     tb_writer.add_scalar("Loss/test", test_loss, epoch)
 
+    if epoch == 1:
+        best_test_loss = test_loss
+    else:
+        best_test_epoch = epoch if test_loss < best_test_loss else best_test_epoch
+        best_test_loss = test_loss if best_test_epoch else best_test_loss
+
+    stop_training = True if epoch - best_test_epoch > lookahead else False
+
 
 for epoch in range(1, n_train_epochs + 1):
-    print(f'\nTrain Epoch: {epoch}')
-    train()
-    test()
+    train(epoch)
+    test(epoch)
+    n_random_samples = 16
 
-    if epoch % 10 == 0:
-        # generate random samples
-        n_random_samples = 16
+    if epoch % round(n_train_epochs / 5) == 0:
         sample = torch.randn(n_random_samples, latent_ndims)  # is randn normalized to latent space?
         sample = sample.cuda() if CUDA else sample
         sample = model.decode(sample).cpu()
 
-        tb_writer.add_images(f'{n_random_samples}samples_from_latent_space_{time_now}',
+        tb_writer.add_images(f'{n_random_samples}_samples_from_latent_space_{time_now}',
                              img_tensor=sample.view(n_random_samples, 1, *input_shape),
                              global_step=epoch,
                              dataformats='NCHW')
 
-    if epoch == n_train_epochs - 1:  # for final epoch
-        n_random_samples = 16
+    if epoch == best_test_epoch:
         random_idxs = torch.randint(0, int(test_loader.dataset.shape[0]), size=(n_random_samples,))
         samples = test_loader.dataset[random_idxs]
 
@@ -92,8 +106,13 @@ for epoch in range(1, n_train_epochs + 1):
                              global_step=epoch,
                              dataformats='NCHW')
 
+        # save trained weights
+        model_path = 'trained_models'
+        torch.save(model.state_dict(), os.path.join(model_path, f'{model_name}_epoch{epoch}_{time_now}'))
+
+    elif stop_training:
+        break
+
 tb_writer.close()
 
-# save trained weights
-model_path = 'trained_models'
-torch.save(model.state_dict(), os.path.join(model_path, f'{model_name}_{time_now}'))
+
