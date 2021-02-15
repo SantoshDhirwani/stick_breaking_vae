@@ -14,8 +14,7 @@ hidden_ndims = 500
 learning_rate = 3e-4
 lookahead = 30
 print_interval = 10
-n_train_epochs = 10
-max_epoch = 2000  # TODO: implement early stopping
+n_train_epochs = 2000
 init_weight_mean_var = (0, .001)
 prior_mu = torch.Tensor([0.])
 prior_sigma = torch.Tensor([1.])
@@ -24,7 +23,7 @@ prior_shape_beta = concentration_alpha0 = torch.Tensor([5.])
 uniform_low = torch.Tensor([.01])
 uniform_high = torch.Tensor([.99])
 activation = nn.ReLU()
-train_valid_test_splits = (45000, 5000, 10000)
+train_valid_test_splits = (5000, 5000, 10000)  # (45000, 5000, 10000)
 dataloader_kwargs = {}
 download_needed = not os.path.exists('./MNIST')
 
@@ -51,4 +50,4 @@ train_loader = torch.utils.data.DataLoader(pruned_train_dataset,
 test_loader = torch.utils.data.DataLoader(test_dataset,
                                           shuffle=False, batch_size=batch_size, **dataloader_kwargs)
 
-
+parametrizations = dict(Kumar='Kumaraswamy', GLogit='Gauss_Logit', GEM='GEM')
