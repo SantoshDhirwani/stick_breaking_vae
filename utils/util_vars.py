@@ -23,7 +23,8 @@ prior_shape_beta = concentration_alpha0 = torch.Tensor([5.])
 uniform_low = torch.Tensor([.01])
 uniform_high = torch.Tensor([.99])
 activation = nn.ReLU()
-train_valid_test_splits = (5000, 5000, 10000)  # (45000, 5000, 10000)
+train_valid_test_splits = (45000, 5000, 10000)
+n_monte_carlo_samples = 1
 dataloader_kwargs = {}
 download_needed = not os.path.exists('./MNIST')
 
