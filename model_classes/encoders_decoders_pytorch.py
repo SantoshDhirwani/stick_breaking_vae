@@ -23,7 +23,7 @@ class StickBreakingEncoder(object):
         self.hidden_to_beta = nn.Linear(hidden_ndims, latent_ndims)
         self.activation = activation
         self.encoder_layers = nn.ModuleList([self.input_to_hidden, self.hidden_to_alpha, self.hidden_to_beta])
-        self.softplus = nn.Softplus()  # smooth approximation to ReLU, to constrain output to positive
+        self.softplus = nn.Softplus()
 
     def encode(self, x):
         # Softplus per Nalisnick & Smythe github implementation
