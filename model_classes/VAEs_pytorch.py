@@ -121,12 +121,17 @@ class GaussianVAE(torch.nn.Module, GaussianEncoder, Decoder, VAE):
         return reconstructed_x, mu, torch.stack([torch.diag(sigma[i]).pow(2) for i in range(len(sigma))])
 
     def kl_divergence(self, mu, sigma):
-        # Nalisnick & Smythe implementation
-        sigma = sigma.diag() if sigma.ndim == 2 else sigma
-        kl = -prior_sigma.repeat(sigma.shape).pow(2).log()
-        kl += -(sigma.mul(2).exp() + (mu - prior_mu).pow(2)) / prior_sigma.pow(2)
-        kl += sigma.mul(2).add(1.)
-        return -0.5 * kl.sum(axis=0)
+        q = self.latent_distribution(mu, sigma)
+        p = self.target_distribution(self.prior_param1, self.prior_param2)
+        kl = torch.distributions.kl_divergence(q, p)
+        return kl
+
+        # # Nalisnick & Smythe implementation
+        # sigma = sigma.diag() if sigma.ndim == 2 else sigma
+        # kl = -prior_sigma.repeat(sigma.shape).pow(2).log()
+        # kl += -(sigma.mul(2).exp() + (mu - prior_mu).pow(2)) / prior_sigma.pow(2)
+        # kl += sigma.mul(2).add(1.)
+        # return -0.5 * kl.sum(axis=0)
 
 
 class StickBreakingVAE(torch.nn.Module, StickBreakingEncoder, Decoder, VAE):

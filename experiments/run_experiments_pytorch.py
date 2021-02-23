@@ -17,15 +17,17 @@ parametrization_str = parametrization if model._get_name() == "StickBreakingVAE"
 model_name = '_'.join(filter(None, [model._get_name(), parametrization_str]))
 start_epoch = 1
 
-if checkpoint_path:
-    checkpoint_model_name = '_'.join(checkpoint_path.split('_')[3:5])
-    assert model_name == checkpoint_model_name, 'Mismatch between specified and checkpoint parametrization'
+if checkpoint_path:  # load checkpoint state
+    assert model_name in checkpoint_path, 'Mismatch between specified and checkpoint parametrization'
     checkpoint = torch.load(checkpoint_path)
     start_epoch, model_state_dict, optimizer_state_dict = list(checkpoint.values())
     optimizer.load_state_dict(optimizer_state_dict)
     model.load_state_dict(model_state_dict)
 
+# init save directories
 tb_writer = SummaryWriter(f'logs/{model_name}')
+if not os.path.exists(os.path.join(model_path, model_name)):
+    os.mkdir(os.path.join(model_path, model_name))
 
 best_test_epoch = None
 best_test_loss = None
@@ -62,7 +64,7 @@ def train(epoch):
                 torch.save({'epoch': best_test_epoch,
                             'model_state_dict': best_test_model,
                             'optimizer_state_dict': best_test_optimizer},
-                           os.path.join(model_path, f'finite_loss_checkpoint_{model_name}_{time_now}'))
+                           os.path.join(model_path, model_name, f'finite_loss_checkpoint_{model_name}_{time_now}'))
                 break
 
         optimizer.step()
@@ -79,7 +81,7 @@ def train(epoch):
     train_loss /= len(train_loader.dataset)
     print('====> Epoch: {} Average loss: {:.4f}'.format(epoch, train_loss))
 
-    tb_writer.add_scalar(f"{time_now}/Loss/train", loss.item(), epoch)
+    tb_writer.add_scalar(f"{time_now}/Loss/train", train_loss.item(), epoch)
     tb_writer.add_scalar(f"{time_now}/Regularization_Loss/train", regularization_loss.item(), epoch)
     tb_writer.add_scalar(f"{time_now}/Reconstruction_Loss/train", reconstruction_loss.item(), epoch)
 
@@ -121,7 +123,7 @@ def test(epoch):
         stop_training = True if epoch - best_test_epoch > lookahead else False
 
 
-for epoch in range(start_epoch, n_train_epochs + start_epoch):
+for epoch in range(start_epoch, n_train_epochs + 1):
     try:
         train(epoch)
         test(epoch)
@@ -129,7 +131,7 @@ for epoch in range(start_epoch, n_train_epochs + start_epoch):
         torch.save({'epoch': epoch,
                     'model_state_dict': model.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict()},
-                   os.path.join(model_path, f'failed_checkpoint_{model_name}_{time_now}'))
+                   os.path.join(model_path, model_name, f'failed_checkpoint_{model_name}_{time_now}'))
         print('Stick segments do not sum to one/reconstructed_x.log() is not finite. Stopping training.')
         break
 
@@ -174,6 +176,6 @@ tb_writer.close()
 torch.save({'epoch': best_test_epoch,
             'model_state_dict': best_test_model,
             'optimizer_state_dict': best_test_optimizer},
-           os.path.join(model_path, f'best_checkpoint_{model_name}_{time_now}'))
+           os.path.join(model_path, model_name, f'best_checkpoint_{model_name}_{time_now}'))
 
 
