@@ -4,39 +4,67 @@ import torch
 from torch import optim
 from torch.utils.tensorboard import SummaryWriter
 from utils.util_vars import CUDA, learning_rate, print_interval, train_loader, test_loader, n_train_epochs, input_shape,\
-    latent_ndims, parametrizations, lookahead, n_monte_carlo_samples
+    latent_ndims, parametrizations, lookahead, n_monte_carlo_samples, n_random_samples, model_path, checkpoint_path
 from model_classes.VAEs_pytorch import GaussianVAE, StickBreakingVAE
-
 
 # init model and optimizer
 time_now = datetime.datetime.now().__format__('%b_%d_%Y_%H_%M')
 parametrization = parametrizations['Kumar']
 model = GaussianVAE().cuda() if CUDA else GaussianVAE()
 # model = StickBreakingVAE(parametrization).cuda() if CUDA else StickBreakingVAE(parametrization)
-optimizer = optim.Adam(model.parameters(), betas=(0.95, 0.999), lr=learning_rate)
+optimizer = optim.Adam(model.parameters(), betas=(0.95, 0.999), lr=learning_rate, eps=1e-4)
 parametrization_str = parametrization if model._get_name() == "StickBreakingVAE" else ''
 model_name = '_'.join(filter(None, [model._get_name(), parametrization_str]))
-model_path = 'trained_models'
+start_epoch = 1
+
+if checkpoint_path:
+    checkpoint_model_name = '_'.join(checkpoint_path.split('_')[3:5])
+    assert model_name == checkpoint_model_name, 'Mismatch between specified and checkpoint parametrization'
+    checkpoint = torch.load(checkpoint_path)
+    start_epoch, model_state_dict, optimizer_state_dict = list(checkpoint.values())
+    optimizer.load_state_dict(optimizer_state_dict)
+    model.load_state_dict(model_state_dict)
+
 tb_writer = SummaryWriter(f'logs/{model_name}')
 
 best_test_epoch = None
 best_test_loss = None
+best_test_model = None
+best_test_optimizer = None
 stop_training = None
 
 
 def train(epoch):
     print(f'\nTrain Epoch: {epoch}')
     model.train()
-    train_loss = 0
+    reconstruction_loss = 0
+    regularization_loss = 0
 
     for batch_idx, data in enumerate(train_loader):
         data = data.cuda() if CUDA else data
-        optimizer.zero_grad()
-        recon_batch, param1, param2 = model(data)
         mc_sample_idx = torch.randint(high=len(data), size=(n_monte_carlo_samples,))
-        loss = model.ELBO_loss(recon_batch[mc_sample_idx], data[mc_sample_idx], param1, param2, model.kl_divergence)
+        mc_sample = data[mc_sample_idx]
+        optimizer.zero_grad()
+        recon_batch, param1, param2 = model(mc_sample)
+        batch_reconstruction_loss, batch_regularization_loss = \
+            model.ELBO_loss(recon_batch, mc_sample, param1, param2, model.kl_divergence)
+        reconstruction_loss += batch_reconstruction_loss
+        regularization_loss += batch_regularization_loss
+        loss = batch_reconstruction_loss + batch_regularization_loss
         loss.backward()
-        train_loss += loss.item()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1)  # to prevent exploding gradient
+
+        # check for NaN values in all .grad attributes
+        for name, param in model.named_parameters():
+            isfinite = torch.isfinite(param).all()
+            if not isfinite:
+                print(name, isfinite)
+                torch.save({'epoch': best_test_epoch,
+                            'model_state_dict': best_test_model,
+                            'optimizer_state_dict': best_test_optimizer},
+                           os.path.join(model_path, f'finite_loss_checkpoint_{model_name}_{time_now}'))
+                break
+
         optimizer.step()
 
         if batch_idx % print_interval == 0:
@@ -44,29 +72,47 @@ def train(epoch):
                   f'({100. * batch_idx / len(train_loader):.0f}%)]'
                   f'\tLoss: {loss.item() / len(data):.6f}')
 
-    print('====> Epoch: {} Average loss: {:.4f}'.format(
-        epoch, train_loss / len(train_loader.dataset)))
+    train_loss = reconstruction_loss + regularization_loss
 
-    tb_writer.add_scalar("Loss/train", loss.item() / len(data), epoch)
+    reconstruction_loss /= len(train_loader.dataset)
+    regularization_loss /= len(train_loader.dataset)
+    train_loss /= len(train_loader.dataset)
+    print('====> Epoch: {} Average loss: {:.4f}'.format(epoch, train_loss))
+
+    tb_writer.add_scalar(f"{time_now}/Loss/train", loss.item(), epoch)
+    tb_writer.add_scalar(f"{time_now}/Regularization_Loss/train", regularization_loss.item(), epoch)
+    tb_writer.add_scalar(f"{time_now}/Reconstruction_Loss/train", reconstruction_loss.item(), epoch)
 
 
 def test(epoch):
     global best_test_epoch, best_test_loss, stop_training
     model.eval()
-    test_loss = 0
+    reconstruction_loss = 0
+    regularization_loss = 0
 
     for batch_idx, data in enumerate(test_loader):
         data = data.cuda() if CUDA else data
-        recon_batch, param1, param2 = model(data)
-        mc_sample = torch.randint(high=len(data), size=(1,))  # draw random monte carlo sample
-        test_loss += model.ELBO_loss(recon_batch[mc_sample], data[mc_sample], param1, param2, model.kl_divergence).item()
+        mc_sample_idx = torch.randint(high=len(data), size=(n_monte_carlo_samples,))  # draw random monte carlo sample
+        mc_sample = data[mc_sample_idx]
+        recon_batch, param1, param2 = model(mc_sample)
+        batch_reconstruction_loss, batch_regularization_loss = \
+            model.ELBO_loss(recon_batch, mc_sample, param1, param2, model.kl_divergence)
 
+        reconstruction_loss += batch_reconstruction_loss
+        regularization_loss += batch_regularization_loss
+
+    test_loss = reconstruction_loss + regularization_loss
+
+    reconstruction_loss /= len(test_loader.dataset)
+    regularization_loss /= len(test_loader.dataset)
     test_loss /= len(test_loader.dataset)
     print('====> Test set loss: {:.4f}'.format(test_loss))
 
-    tb_writer.add_scalar("Loss/test", test_loss, epoch)
+    tb_writer.add_scalar(f"{time_now}/Loss/test", test_loss.item(), epoch)
+    tb_writer.add_scalar(f"{time_now}/Regularization_Loss/test", regularization_loss.item(), epoch)
+    tb_writer.add_scalar(f"{time_now}/Reconstruction_Loss/test", reconstruction_loss.item(), epoch)
 
-    if epoch == 1:
+    if epoch == start_epoch:
         best_test_epoch = epoch
         best_test_loss = test_loss
     else:
@@ -75,19 +121,26 @@ def test(epoch):
         stop_training = True if epoch - best_test_epoch > lookahead else False
 
 
-for epoch in range(1, n_train_epochs + 1):
-    train(epoch)
-    test(epoch)
-    n_random_samples = 16
+for epoch in range(start_epoch, n_train_epochs + start_epoch):
+    try:
+        train(epoch)
+        test(epoch)
+    except AssertionError:
+        torch.save({'epoch': epoch,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict()},
+                   os.path.join(model_path, f'failed_checkpoint_{model_name}_{time_now}'))
+        print('Stick segments do not sum to one/reconstructed_x.log() is not finite. Stopping training.')
+        break
 
     if epoch == best_test_epoch:
 
-        sample = torch.randn(n_random_samples, latent_ndims)  # is randn normalized to latent space?
+        sample = torch.randn(n_random_samples, latent_ndims)  # TODO: normalize random sample to latent space bounds
         sample = sample.cuda() if CUDA else sample
         sample = model.decode(sample).cpu()
 
         # save latent space samples
-        tb_writer.add_images(f'{n_random_samples}_samples_from_latent_space_{time_now}',
+        tb_writer.add_images(f'{n_random_samples}_random_latent_space_samples_{time_now}',
                              img_tensor=sample.view(n_random_samples, 1, *input_shape),
                              global_step=epoch,
                              dataformats='NCHW')
@@ -112,11 +165,15 @@ for epoch in range(1, n_train_epochs + 1):
 
         # save trained weights
         best_test_model = model.state_dict().copy()
+        best_test_optimizer = optimizer.state_dict().copy()
 
     elif stop_training:
         break
 
 tb_writer.close()
-torch.save(best_test_model, os.path.join(model_path, f'{model_name}_epoch{epoch}_{time_now}'))
+torch.save({'epoch': best_test_epoch,
+            'model_state_dict': best_test_model,
+            'optimizer_state_dict': best_test_optimizer},
+           os.path.join(model_path, f'best_checkpoint_{model_name}_{time_now}'))
 
 
