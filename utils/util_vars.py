@@ -17,6 +17,7 @@ print_interval = 10
 n_train_epochs = 1500
 init_weight_mean_var = (0, .001)
 prior_mu = torch.Tensor([0.])
+glogit_prior_mu = torch.Tensor([-1.6])
 prior_sigma = torch.Tensor([1.])
 prior_alpha = torch.Tensor([1.])
 prior_beta = concentration_alpha0 = torch.Tensor([5.])
@@ -24,7 +25,7 @@ uniform_low = torch.Tensor([.01])
 uniform_high = torch.Tensor([.99])
 activation = nn.ReLU()
 train_valid_test_splits = (45000, 5000, 10000)
-n_monte_carlo_samples = 10
+n_monte_carlo_samples = 1
 n_random_samples = 16
 dataloader_kwargs = {}
 download_needed = not os.path.exists('./MNIST')
@@ -46,12 +47,12 @@ input_shape = list(train_dataset.data[0].shape)
 input_ndims = np.product(input_shape)
 
 # define data loaders
-train_dataset = train_dataset.data.reshape(-1, 1, *input_shape) / 255  # reshaping and scaling bytes to [0,1]
-test_dataset = test_dataset.data.reshape(-1, 1, *input_shape) / 255
-pruned_train_dataset = train_dataset.data[:train_valid_test_splits[0]]
-train_loader = torch.utils.data.DataLoader(pruned_train_dataset,
+train_data = train_dataset.data.reshape(-1, 1, *input_shape) / 255  # reshaping and scaling bytes to [0,1]
+test_data = test_dataset.data.reshape(-1, 1, *input_shape) / 255
+pruned_train_data = train_data[:train_valid_test_splits[0]]
+train_loader = torch.utils.data.DataLoader(pruned_train_data,
                                            shuffle=True, batch_size=batch_size, **dataloader_kwargs)
-test_loader = torch.utils.data.DataLoader(test_dataset,
+test_loader = torch.utils.data.DataLoader(test_data,
                                           shuffle=False, batch_size=batch_size, **dataloader_kwargs)
 
 parametrizations = dict(Kumar='Kumaraswamy', GLogit='Gauss_Logit', GEM='GEM')
